@@ -1,0 +1,82 @@
+---
+title: "Predicting Barbell Activity From Accelerometer Data"
+author: "Josselin Noirel"
+date: "23 November 2014"
+output: html_document
+---
+
+# Preamble
+
+We load the package, the training dataset (more on that later) and the testing dataset.  Some data seem to be corrupted by divisions by zero.  We take care of that by interpreting "`#DIV/0!`" as NA values.
+
+```{r}
+library("caret")
+
+data     <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!"))
+testing  <- read.csv("pml-testing.csv",  na.strings = c("NA", "#DIV/0!"))
+```
+
+In order to estimate the error of the model we'll be developping in a moment, we'd like to have a dataset we can use as a test dataset.  We split the data into two sets `data_train` to train the model and `data_test` to evaluate its accuracy.
+
+```{r}
+n <- nrow(data)
+s <- sample(n, n - 1000)
+data_train <- data[ s, ]
+data_test  <- data[-s, ]
+```
+
+# Preprocessing the data
+
+We remove the first five columns, which are not useful for learning:
+
+* "X" - Index the entry
+* "user name" - We seek to learn from accelerometer data, not from users themselves (this point is debatable)
+* "raw time stamp I"
+* "raw time stamp II"
+* "cvtd time stamp" - Temporal information would be useful for time series; we have to exclude time as we cannot make any inference based on time when it comes to the test dataset
+
+```{r}
+cols <- names(data_train)
+cols <- cols[-(1:5)]
+```
+
+Besides many columns contain mainly NA values.  We focus on columns where all the data are available.  This is again debatable, since disregarding missing values can lead to biases in predictions.  However, the situation here seems to be pretty much clear cut between columns that contain no NA values and columns that contain only NA values; so that there is little hope anyway for us to try to estimate the missing values.
+
+```{r}
+na_counts <- sapply(cols, function (c) {sum(is.na(data_train[, c]))})
+cols <- cols[na_counts == 0]
+data_train_clean <- data_train[, cols]
+```
+
+# Learning Model and Selection of Model
+
+Given the wealth of data and the density of the data, a $k$ nearest neighbours approach seem quite appropriate.  The number $k$ is obtained from cross-validation using the `trainControl` method, so that it maximises accuracy on the `data_train` set.
+
+```{r}
+fitControl <- trainControl(method = "repeatedcv", number = 3, repeats = 3)
+model_knn  <- train(classe ~ ., data=data_train_clean, method="knn",
+                    preProcess = c("center", "scale"),
+                    trControl = fitControl)
+```
+
+# Model Evaluation
+
+We evaluate the accuracy on our `data_test` set, for which we still have the answer.  Our model achieves an accuracy of 97%.
+
+```{r}
+sum(predict(model_knn, data_test) == data_test$classe)/1000
+```
+
+More details can be obtained from the confusion matrix
+
+```{r}
+confusionMatrix(predict(model_knn, data_test), data_test$classe)
+```
+
+# Test set
+
+Our predictions for the test set are given here
+
+```{r}
+predict(model_knn, testing)
+```
